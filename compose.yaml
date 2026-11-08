@@ -1,0 +1,102 @@
+name: indiestage
+x-java-defaults: &java
+  restart: unless-stopped
+  stop_grace_period: 20s
+  mem_limit: 512m
+  environment: &java-env
+    SPRING_PROFILES_ACTIVE: docker
+    JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
+  volumes:
+    - app-logs:/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+services:
+  eureka-server:
+    <<: *java
+    build: ./eureka-server
+    environment:
+      <<: *java-env
+      SERVER_PORT: "8761"
+    ports:
+      - "127.0.0.1:8761:8761"
+  espacos:
+    <<: *java
+    build: ./espacos
+    environment:
+      <<: *java-env
+      ESPACOS_DB_PASSWORD: ${ESPACOS_DB_PASSWORD:?Execute scripts/Preparar-Ambiente.ps1}
+    volumes:
+      - espacos-data:/data
+      - app-logs:/logs
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+  eventos:
+    <<: *java
+    build: ./eventos
+    environment:
+      <<: *java-env
+      EVENTOS_DB_PASSWORD: ${EVENTOS_DB_PASSWORD:?Execute scripts/Preparar-Ambiente.ps1}
+    volumes:
+      - eventos-data:/data
+      - app-logs:/logs
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+  gateway:
+    <<: *java
+    build: ./gateway
+    ports:
+      - "127.0.0.1:8082:8080"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      espacos:
+        condition: service_healthy
+      eventos:
+        condition: service_healthy
+  loki:
+    image: grafana/loki:3.7.0
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - loki-data:/loki
+    restart: unless-stopped
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command: run --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+    volumes:
+      - ./observabilidade/config.alloy:/etc/alloy/config.alloy:ro
+      - app-logs:/var/log/indiestage:ro
+      - alloy-data:/var/lib/alloy
+    depends_on:
+      - loki
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:13.2.5-ubuntu
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Execute scripts/Preparar-Ambiente.ps1}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observabilidade/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observabilidade/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+volumes:
+  espacos-data:
+  eventos-data:
+  app-logs:
+  loki-data:
+  alloy-data:
+  grafana-data:

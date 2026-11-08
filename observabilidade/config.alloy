@@ -1,0 +1,16 @@
+loki.source.file "apps" {
+  targets = [
+    {__path__ = "/var/log/indiestage/espacos.log", job = "indiestage", service = "espacos"},
+    {__path__ = "/var/log/indiestage/eventos.log", job = "indiestage", service = "eventos"},
+    {__path__ = "/var/log/indiestage/gateway.log", job = "indiestage", service = "gateway"},
+    {__path__ = "/var/log/indiestage/eureka-server.log", job = "indiestage", service = "eureka-server"},
+  ]
+  file_match {
+    enabled = true
+    sync_period = "5s"
+  }
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint { url = "http://loki:3100/loki/api/v1/push" }
+}
